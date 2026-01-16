@@ -1,6 +1,7 @@
 venv
 .venv
 olfacenv/
+.olfacenv
 .olfacenv/
 __pycache__/
 *.pyc
