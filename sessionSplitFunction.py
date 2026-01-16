@@ -46,61 +46,78 @@ def getRegionalData (data):
     return X_pcx,X_plcoa
 
 
-def build_dataset_with_holdout (X_pcx, X_plcoa, N , sess_index = 1 , rng = None):
-    # labels : (0 = pcx , 1 = plcoa)
+def build_dataset_with_holdout(X_pcx, X_plcoa, N, sess_index=1, rng=None, meanReps= False):
     if rng is None:
         rng = np.random.default_rng()
-    X , y = [],[]
-    X_held,y_held = [],[]
-    
+        
+    if meanReps:
+        bin_size = 10
+    else:
+        bin_size = 1
 
-    # Exclude the k session
+    X, y = [], []
+    X_held, y_held = [], []
+
+    def bin_trials(session, bin_size):
+        n_bins = session.shape[0] // bin_size
+        return np.array([
+            session[i*bin_size:(i+1)*bin_size].mean(axis=0)
+            for i in range(n_bins)
+        ])
+
     if sess_index is not None:
-        
-        X_pcx_test_session = X_pcx[sess_index]
+        X_pcx_test_session = X_pcx[sess_index].T
+        X_plcoa_test_session = X_plcoa[sess_index].T
+
+        # Apply binning to held-out sessions if requested
+        if bin_size > 1:
+            X_pcx_test_session = bin_trials(X_pcx_test_session, bin_size)
+            X_plcoa_test_session = bin_trials(X_plcoa_test_session, bin_size)
+
         X_pcx_train = X_pcx[:sess_index] + X_pcx[sess_index+1:]
-        
-        X_plcoa_test_session = X_plcoa[sess_index]
         X_plcoa_train = X_plcoa[:sess_index] + X_plcoa[sess_index+1:]
-        # Building separate session for testing true population
-        X_pcx_test_session = X_pcx_test_session.T
-        X_plcoa_test_session = X_plcoa_test_session.T
-        
-        N = min (X_pcx_test_session.shape[1],X_plcoa_test_session.shape[1], N)
-        
+
+        N = min(X_pcx_test_session.shape[0], X_plcoa_test_session.shape[0], N)
     else:
         X_pcx_train = X_pcx
         X_plcoa_train = X_plcoa
-    
+
     for sess in X_pcx_train:
-        sess = sess.T  # Trasposing into expected trials X Neurons format
-        if sess.shape[1] < N:
+        sess = sess.T
+        if bin_size > 1:
+            sess = bin_trials(sess, bin_size)
+        if sess.shape[0] < N:
             continue
-        idx = rng.choice(sess.shape[1], N, replace=False)
-        X.append(sess[:, idx])
-        y.append(np.zeros(sess.shape[0]))
+        idx = rng.choice(sess.shape[0], N, replace=False)
+        X.append(sess[idx])
+        y.append(np.zeros(N))
 
     for sess in X_plcoa_train:
-        sess = sess.T  # Trasposing into expected trials X Neurons format
-        if sess.shape[1] < N:
+        sess = sess.T
+        if bin_size > 1:
+            sess = bin_trials(sess, bin_size)
+        if sess.shape[0] < N:
             continue
-        idx = rng.choice(sess.shape[1], N, replace=False)
-        X.append(sess[:, idx])
-        y.append(np.ones(sess.shape[0]))
-        
-        
+        idx = rng.choice(sess.shape[0], N, replace=False)
+        X.append(sess[idx])
+        y.append(np.ones(N))
+
     if sess_index is not None:
-        idx_pcx = rng.choice(X_pcx_test_session.shape[1], N, replace=False) 
-        idx_plcoa = rng.choice(X_plcoa_test_session.shape[1], N, replace=False)
+        idx_pcx = rng.choice(X_pcx_test_session.shape[0], N, replace=False)
+        idx_plcoa = rng.choice(X_plcoa_test_session.shape[0], N, replace=False)
+
         X_held = np.vstack([
-        X_pcx_test_session[:, idx_pcx],
-        X_plcoa_test_session[:, idx_plcoa]])
-    
+            X_pcx_test_session[idx_pcx],
+            X_plcoa_test_session[idx_plcoa]
+        ])
         y_held = np.concatenate([
-        np.zeros(X_pcx_test_session.shape[0]),
-        np.ones(X_plcoa_test_session.shape[0])])
-        return np.vstack(X), np.concatenate(y) , X_held, y_held
-    return np.vstack(X), np.concatenate(y) , None , None
+            np.zeros(N),
+            np.ones(N)
+        ])
+        return np.vstack(X), np.concatenate(y), X_held, y_held
+
+    return np.vstack(X), np.concatenate(y), None, None
+
 
 
 #X , y, X_held, y_held = build_dataset_with_holdout(X_pcx,X_plcoa, 10)
@@ -267,7 +284,7 @@ perm_means = []
 
 rng = np.random.default_rng(123)
 
-for p in range(50):
+for p in range(150):
     perm_acc = []
     
     for i in range (50):
@@ -308,3 +325,33 @@ plt.title(f'Permutation test, p-value:  {round(p_value,3)}')
 plt.legend()
 plt.tight_layout()
 plt.show()
+
+
+# Boxplot
+
+
+# Convert to numpy arrays (important for plotting)
+pseudoAcc = np.array(pseudoAcc)
+perm_means = np.array(perm_means)
+session_acc = np.array(trueAcc)
+plt.figure(figsize=(6,5))
+
+plt.boxplot(
+    [session_acc, acc, perm_means],
+    tick_labels=[ 'Held-out session','Pseudo-population', 'Permutation (null)'],
+    patch_artist=True,
+    boxprops=dict(facecolor='lightsteelblue'),
+    medianprops=dict(color='black')
+)
+
+# Chance line
+plt.axhline(0.5, color='k', linestyle='--', linewidth=1, label='Chance')
+
+plt.ylabel('Classification accuracy')
+plt.title('Decoding performance comparison')
+plt.ylim(0.4, 1.0)
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+
