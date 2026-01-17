@@ -30,9 +30,9 @@ from sklearn.preprocessing import StandardScaler
 
 # load data from .mat file
 import h5py
-data = h5py.File ('/Users/ofekh/Library/CloudStorage/OneDrive-Bar-IlanUniversity-Students/MachineLearning_HW/FinalProject_stuff/region_sessions.mat')
-dataAA = h5py.File('/Users/ofekh/Library/CloudStorage/OneDrive-Bar-IlanUniversity-Students/MachineLearning_HW/FinalProject_HelperFunctions/region_sessions_AA.mat')
-dataNatMixes = h5py.File('/Users/ofekh/Library/CloudStorage/OneDrive-Bar-IlanUniversity-Students/MachineLearning_HW/FinalProject_stuff/region_sessions_natMix.mat')
+data = h5py.File ('data/region_sessions.mat')
+dataAA = h5py.File('data/region_sessions_AA.mat')
+dataNatMixes = h5py.File('data/region_sessions_natMix.mat')
 list(data.keys())
 
 
@@ -48,40 +48,162 @@ def getRegionalData (data):
 
 # A. Firing Rate Stats - Discriptive features
 def mean_response(session_data):
+    """Calculate the mean firing rate across all neurons and trials.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    float
+        Mean firing rate across entire session.
+    """
     return np.mean(session_data)
 
 def std_response(session_data):
+    """Calculate the standard deviation of firing rates across all neurons and trials.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    float
+        Standard deviation of firing rates.
+    """
     return np.std(session_data)
 
 def mean_per_neuron(session_data):
+    """Calculate mean of each neuron's average firing rate.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    float
+        Mean of per-neuron averages.
+    """
     return np.mean(np.mean(session_data, axis=1))
 
 def std_per_neuron(session_data):
+    """Calculate mean of each neuron's firing rate variability.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    float
+        Mean of per-neuron standard deviations across trials.
+    """
     return np.mean(np.std(session_data, axis=1))
 
 def mean_peak_response(session_data):
+    """Calculate mean of peak firing rates across neurons.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    float
+        Mean peak firing rate across all neurons.
+    """
     peak_vals = np.max(session_data, axis=1)
     return np.mean(peak_vals)
 
 def fraction_excited(session_data):
+    """Calculate fraction of neurons with positive average firing rate.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    float
+        Fraction of excited neurons (mean firing rate > 0).
+    """
     neuron_means = np.mean(session_data, axis=1)
     return np.sum(neuron_means > 0) / len(neuron_means)
 
 def fraction_suppressed(session_data):
+    """Calculate fraction of neurons with negative average firing rate.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    float
+        Fraction of suppressed neurons (mean firing rate < 0).
+    """
     neuron_means = np.mean(session_data, axis=1)
     return np.sum(neuron_means < 0) / len(neuron_means)
 
 def neuron_mean_skew(session_data):
+    """Calculate skewness of the neuron mean firing rates distribution.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    float
+        Skewness of the distribution of per-neuron mean firing rates.
+    """
     neuron_means = np.mean(session_data, axis=1)  # shape: (neurons,)
     return skew(neuron_means)
 
 def silent_neuron_fraction(session_data, threshold=0.05):
+    """Calculate fraction of neurons with firing rate near zero.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    threshold : float, optional
+        Activity threshold below which neurons are considered silent (default: 0.05).
+    
+    Returns
+    -------
+    float
+        Fraction of neurons with activity below threshold.
+    """
     neuron_means = np.mean(session_data, axis=1)
     return np.sum(np.abs(neuron_means) < threshold) / len(neuron_means)
 
 
 # B. Trial Consistency features
 def mean_trial_corr(session_data):
+    """Calculate mean correlation between pairs of trials.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    float
+        Mean Pearson correlation between trial pairs. Returns NaN if < 2 trials.
+    """
     if session_data.shape[1] < 2:
         return np.nan  # not enough trials
     corr = np.corrcoef(session_data.T)
@@ -89,14 +211,50 @@ def mean_trial_corr(session_data):
     return np.nanmean(corr[mask])
 
 def trial_var_ratio(session_data):
+    """Calculate ratio of trial-to-trial variability to total variability.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    float
+        Ratio of per-neuron trial variance to total variance.
+    """
     var_across_trials = np.var(session_data, axis=1)
     total_var = np.var(session_data)
     return np.mean(var_across_trials) / total_var if total_var != 0 else 0
 
 def neuronal_consistency(session_data):
+    """Calculate average trial-to-trial variability within neurons.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    float
+        Mean standard deviation of responses across trials for each neuron.
+    """
     return np.mean(np.std(session_data, axis=1))
 
 def mean_cosine_similarity(session_data):
+    """Calculate mean cosine similarity between pairs of neurons.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    float
+        Mean cosine similarity between neuron pairs. Returns NaN if < 2 neurons.
+    """
     if session_data.shape[0] < 2:
         return np.nan
     cos_sim_matrix = cosine_similarity(session_data)  # shape: (neurons x neurons)
@@ -104,8 +262,19 @@ def mean_cosine_similarity(session_data):
     return np.mean(cos_sim_matrix[mask])
 
 # C. Corrolation + Dimensionality
-
 def pairwise_neuron_corr_mean(session_data):
+    """Calculate mean Pearson correlation between pairs of neurons.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    float
+        Mean correlation coefficient between neuron pairs. Returns NaN if < 2 neurons.
+    """
     if session_data.shape[0] < 2:
         return np.nan
     corr = np.corrcoef(session_data)
@@ -113,6 +282,18 @@ def pairwise_neuron_corr_mean(session_data):
     return np.nanmean(corr[mask])
 
 def PC1_explained_var(session_data):
+    """Calculate fraction of variance explained by the first principal component.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    float
+        Fraction of total variance explained by PC1 (0 to 1).
+    """
     if min(session_data.shape) < 2:
         return 0
     pca = PCA(n_components=1)
@@ -120,6 +301,20 @@ def PC1_explained_var(session_data):
     return pca.explained_variance_ratio_[0]
 
 def dimensionality_ratio(session_data, threshold=0.9):
+    """Calculate ratio of PCs needed to explain variance threshold to total neurons.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    threshold : float, optional
+        Cumulative variance threshold (default: 0.9 = 90%).
+    
+    Returns
+    -------
+    float
+        Ratio of components needed for threshold to total neuron count.
+    """
     n_components = min(session_data.shape)
     pca = PCA(n_components=n_components)
     pca.fit(session_data)
@@ -128,6 +323,21 @@ def dimensionality_ratio(session_data, threshold=0.9):
     return n_pc / session_data.shape[0]
 
 def participation_ratio(session_data):
+    """Calculate dimensionality metric based on covariance eigenvalues.
+    
+    Measures how much different modes of activity contribute equally.
+    High ratio indicates activity distributed across many dimensions.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    float
+        Participation ratio (dimensionality metric).
+    """
     cov = np.cov(session_data)
     eigvals = np.linalg.eigvalsh(cov)
     eigvals = eigvals[eigvals > 1e-10]  # avoid div by zero
@@ -135,9 +345,33 @@ def participation_ratio(session_data):
 
 # D. MetaData
 def n_neurons(session_data):
+    """Return the number of neurons in the session.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    int
+        Number of neurons recorded in the session.
+    """
     return session_data.shape[0]
 
 def n_trials(session_data):
+    """Return the number of trials in the session.
+    
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Neural activity data for a session.
+    
+    Returns
+    -------
+    int
+        Number of trials in the session.
+    """
     return session_data.shape[1]
 
 
@@ -145,7 +379,7 @@ def extract_all_features(session_data):
     return [
         mean_response(session_data),
         std_response(session_data),
-        mean_per_neuron(session_data),
+        # mean_per_neuron(session_data),
         std_per_neuron(session_data),
         mean_peak_response(session_data),
         fraction_excited(session_data),
@@ -160,7 +394,7 @@ def extract_all_features(session_data):
         PC1_explained_var(session_data),
         dimensionality_ratio(session_data),
         participation_ratio(session_data),
-        n_neurons(session_data),
+        # n_neurons(session_data),
         #n_trials(session_data)
     ]
 
@@ -261,7 +495,6 @@ X_scaled = scaler.fit_transform(X_all)
 # PCA before model - If overfitting
 
 X_pca = PCA(n_components=5).fit_transform(X_all)
-
 
 # Run model
 
