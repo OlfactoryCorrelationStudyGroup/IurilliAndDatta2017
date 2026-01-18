@@ -384,22 +384,67 @@ def extract_all_features(session_data):
         mean_peak_response(session_data),
         fraction_excited(session_data),
         fraction_suppressed(session_data),
-        #neuron_mean_skew(session_data),
-        #silent_neuron_fraction(session_data),
+        # neuron_mean_skew(session_data),
+        # silent_neuron_fraction(session_data),
         mean_trial_corr(session_data),
         trial_var_ratio(session_data),
         neuronal_consistency(session_data),
-        #mean_cosine_similarity(session_data),
+        # mean_cosine_similarity(session_data),
         pairwise_neuron_corr_mean(session_data),
         PC1_explained_var(session_data),
         dimensionality_ratio(session_data),
         participation_ratio(session_data),
         # n_neurons(session_data),
-        #n_trials(session_data)
+        # n_trials(session_data)
     ]
 
-# SVM with Leave one out testing
+# Feature names for better visualization
+global full_feature_names_list 
+full_feature_names_list = [
+    "Mean Response",
+    "Std Response",
+    # "Mean Per Neuron",
+    "Std Per Neuron",
+    "Mean Peak Response",
+    "Fraction Excited",
+    "Fraction Suppressed",
+    # "Neuron Mean Skew",
+    # "Silent Neuron Fraction",
+    "Mean Trial Corr",
+    "Trial Var Ratio",
+    "Neuronal Consistency",
+    # "Mean Cosine Similarity",
+    "Pairwise Neuron Corr Mean",
+    "PC1 Explained Var",
+    "Dimensionality Ratio",
+    "Participation Ratio",
+    # "Number of Neurons",
+    # "Number of Trials"
+]
 
+# Check for correlation between extracted features
+def feature_correlation_matrix(X_all):
+    feature_matrix = np.array(X_all)  # shape: (n_sessions, n_features)
+    corr_matrix = np.corrcoef(feature_matrix, rowvar=False)  # shape: (n_features, n_features)
+    return corr_matrix
+
+# Plot correlation between extracted features
+def feature_correlation_plot(X_all, feature_names= full_feature_names_list):
+    corr_matrix = feature_correlation_matrix(X_all)
+
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(corr_matrix, annot=True, fmt=".2f", cmap='coolwarm',
+                xticklabels=feature_names,
+                yticklabels=feature_names)
+    plt.title('Feature Correlation Matrix')
+    plt.show()
+
+# Mutual information–based selection
+
+
+
+
+# SVM with Leave one out testing
 def run_leave_one_out_cv(X_all, y_all, clf=None):
     if clf is None:
         clf = SVC(kernel='linear', C=1)
@@ -439,7 +484,6 @@ def plot_confusion_matrix(y_true, y_pred, p, real_acc, class_labels=['PCx', 'plC
     plt.show()
 
 # Permutation test function
-
 def permutation_test_loocv(X_all, y_all, n_permutations=100, clf=None):
 
     real_preds, real_trues, real_acc = run_leave_one_out_cv(X_all, y_all, clf=clf)
@@ -453,7 +497,6 @@ def permutation_test_loocv(X_all, y_all, n_permutations=100, clf=None):
     return real_acc, null_accuracies
 
 # Build dataset
-
 X_pcx , X_plcoa = getRegionalData(data)
 X_pcx_Nat , X_plcoa_Nat = getRegionalData(dataNatMixes)
 X_pcx_AA , X_plcoa_AA = getRegionalData(dataAA)
@@ -492,12 +535,14 @@ X_all = np.array (X_all)
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X_all)
 
-# PCA before model - If overfitting
+# Check feature correlations after standardization
+feature_correlation_plot(X_scaled)
 
+
+# PCA before model - If overfitting
 X_pca = PCA(n_components=5).fit_transform(X_all)
 
 # Run model
-
 preds, truths, acc = run_leave_one_out_cv(X_all, y_all)
 print("LOO Accuracy:", acc)
 cm = confusion_matrix(truths, preds, labels=['PCx','plCoA'])
