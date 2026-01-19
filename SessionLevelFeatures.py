@@ -23,6 +23,9 @@ from sklearn.utils import shuffle
 from scipy.stats import skew
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import StandardScaler
+# For recursive feature elimination
+from sklearn.feature_selection import RFE
+from sklearn.model_selection import StratifiedKFold
 
 
 
@@ -439,7 +442,38 @@ def feature_correlation_plot(X_all, feature_names= full_feature_names_list):
     plt.title('Feature Correlation Matrix')
     plt.show()
 
-# Mutual information–based selection
+'''
+Recursive feature eliminaion function
+
+Using RFE with Cross-Validation to select top features
+
+Procedure:
+1. Run RFE inside each CV fold
+2. Track how often each feature is selected across folds
+3. Rank features by selection frequency
+4. Keep top N features based on frequency
+'''
+def recursive_feature_elimination_cv(X_all, y_all, n_features_to_select=5, clf=None, n_splits=5):
+
+    if clf is None:
+        clf = SVC(kernel='linear', C=1)
+
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    feature_selection_counts = np.zeros(X_all.shape[1])
+
+    for train_index, test_index in skf.split(X_all, y_all):
+        X_train, X_test = X_all[train_index], X_all[test_index]
+        y_train, y_test = np.array(y_all)[train_index], np.array(y_all)[test_index]
+
+        rfe = RFE(estimator=clf, n_features_to_select=n_features_to_select)
+        rfe.fit(X_train, y_train)
+
+        feature_selection_counts += rfe.support_.astype(int)
+
+    feature_ranking = np.argsort(-feature_selection_counts)
+    selected_features = feature_ranking[:n_features_to_select]
+
+    return selected_features, feature_selection_counts
 
 
 
@@ -548,10 +582,7 @@ print("LOO Accuracy:", acc)
 cm = confusion_matrix(truths, preds, labels=['PCx','plCoA'])
 print (cm)
 
-
-
 # Run permutation test
-
 real_acc, null_accs = permutation_test_loocv(X_all, y_all, n_permutations=100)
 p = sum(a >= real_acc for a in null_accs) / len(null_accs)
 print(f"p-value: {p:.4f}")
@@ -565,3 +596,15 @@ plt.ylabel('Frequency')
 plt.title('Permutation Test (Session Decoding)')
 plt.legend()
 plt.show()
+
+# Recursive Feature Elimination with Cross-Validation
+top_features, feature_counts = recursive_feature_elimination_cv(X_all, y_all, n_features_to_select=10, clf=None, n_splits=15)
+for idx in top_features:
+    print(f"Feature: {full_feature_names_list[idx]}, Selected {feature_counts[idx]} times")
+
+# Use the top features for final model
+X_selected = X_all[:, top_features]
+preds, truths, acc = run_leave_one_out_cv(X_selected, y_all)
+print("LOO Accuracy with selected features:", acc)
+cm = confusion_matrix(truths, preds, labels=['PCx','plCoA'])
+print (cm)
