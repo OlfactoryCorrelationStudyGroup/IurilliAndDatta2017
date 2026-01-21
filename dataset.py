@@ -88,8 +88,10 @@ def get_data(file_path):
     return mat_data['espe']
 
 
-def get_firing_rate_2(data,baseline_start=2000,resp_start=4000,baseline_duration=2,resp_duration=6):
+def get_firing_rate_2(data,baseline_start=2000,resp_start=4000,resp_end=10000):
 
+    baseline_duration = (resp_start - baseline_start)/1000 # in seconds
+    resp_duration = (resp_end - resp_start)/1000
     spikes_dict = data.todok()
     rates = []
     for trial in range(10):
@@ -101,7 +103,7 @@ def get_firing_rate_2(data,baseline_start=2000,resp_start=4000,baseline_duration
         dok_arr = spikes_dict[trial].todok()
         keys = np.array(list(dok_arr.keys()))
         base_keys = keys[(keys>=baseline_start) & (keys<resp_start)]
-        resp_keys = keys[keys>=resp_start]
+        resp_keys = keys[(keys>=resp_start) & (keys<=resp_end)]
         base_spikes = []
         resp_spikes = []
         
@@ -122,7 +124,7 @@ def get_firing_rate_2(data,baseline_start=2000,resp_start=4000,baseline_duration
     return np.array(rates)
 
 
-def preprocess_2(data,baseline_start=2000,resp_start=4000,baseline_duration=2,resp_duration=6):
+def preprocess_2(data,baseline_start=2000,resp_start=4000,resp_end=10000):
 
     sessions = []
     for session in data:
@@ -138,7 +140,7 @@ def preprocess_2(data,baseline_start=2000,resp_start=4000,baseline_duration=2,re
                     rows = np.array([]) # rows per 1 neuron, should result in (150,) np array
                     for odor in cell.odor:
                         spikes = odor.spikeMatrix # scipy.sparse._csc.csc_array
-                        rates = get_firing_rate_2(spikes,baseline_start,resp_start,baseline_duration,resp_duration) # (10,) np array
+                        rates = get_firing_rate_2(spikes,baseline_start,resp_start,resp_end) # (10,) np array
                         rows = np.concatenate((rows,rates),axis=0)
                     
                     rows = rows[:,np.newaxis] # converts rows to (150,1) shape
@@ -160,7 +162,9 @@ data = get_data(file_path=file_path)
 #print(data[0].shank[0].SUA.cell[1]._fieldnames)
 #print(len(data))
 
-sessions = preprocess_2(data)
+# setting resp_end=6000 should give the same results as Ofek's non-normalized .mat data
+# unless i fucked up somewhere
+sessions = preprocess_2(data) 
 
 for session in sessions:
 
