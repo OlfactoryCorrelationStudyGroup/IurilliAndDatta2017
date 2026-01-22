@@ -67,9 +67,9 @@ def run_leave_one_out_cv(X_all, y_all, clf=None):
         y_test = np.array([y_all[i] for i in test_idx])
 
         # Fold-wise scaling: fit on training fold, apply to train and test
-        scaler = StandardScaler()
-        X_train = scaler.fit_transform(X_train)
-        X_test = scaler.transform(X_test)
+        # scaler = StandardScaler()
+        # X_train = scaler.fit_transform(X_train)
+        # X_test = scaler.transform(X_test)
 
         clf.fit(X_train, y_train)
         pred = clf.predict(X_test)
@@ -108,11 +108,29 @@ def permutation_test_loocv(X_all, y_all, n_permutations=100, clf=None):
 
     return real_acc, null_accuracies
 
-# Build dataset
-X_pcx_Mono , X_plcoa_Mono = getRegionalData(data)
-X_pcx_Nat , X_plcoa_Nat = getRegionalData(dataNatMixes)
-X_pcx_AA , X_plcoa_AA = getRegionalData(dataAA)
+def normalize_session_per_odor_per_neuron(session_data, structure, eps=1e-8):
+    """Per-odor, per-neuron z-score within a single session.
 
+    Assumes trials are ordered in contiguous odor blocks:
+    [odor1_rep1..odor1_repN | odor2_rep1..odor2_repN | ...].
+    For each neuron, each odor block is z-scored independently.
+    """
+    n_odors, n_reps = structure
+    n_neurons = session_data.shape[0]
+    normalized_data = np.zeros_like(session_data)
+
+    for neuron_idx in range(n_neurons):
+        neuron_data = session_data[neuron_idx, :]
+        for odor_idx in range(n_odors):
+            start = odor_idx * n_reps
+            end = start + n_reps
+            odor_block = neuron_data[start:end]
+            mean = np.mean(odor_block)
+            std = np.std(odor_block)
+            normalized_data[neuron_idx, start:end] = (odor_block - mean) / (std + eps)
+
+    return normalized_data
+    
 # Session structure dict
 session_structure = {
     'Mono': (15, 10), # 15 odors, 10 readings per odor. 150 readings per neuron
@@ -120,197 +138,62 @@ session_structure = {
     'AA': (10, 10)     # 10 odors, 10 readings per odor. 100 readings per neuron
 }
 
-def normalize_session_per_odor_neuron(session_data, structure, eps=1e-8):
-    """Per-odor, per-neuron z-score within a single session.
+def build_normalized_dataset(condition, X_pcx_sessions, X_plcoa_sessions):
+    """Build normalized dataset for a given condition."""
+    structure = session_structure[condition]
+    X_all = []
+    y_all = []
 
-    Assumes trials are ordered in contiguous odor blocks:
-    [odor1_rep1..odor1_repN | odor2_rep1..odor2_repN | ...].
-    For each neuron and odor, z-scores across repeats to remove odor-wise
-    baseline/scale within the session while preserving odor structure.
-    """
-    n_odors, n_reps = structure
-    n_neurons, n_trials = session_data.shape
-    expected = n_odors * n_reps
-    if n_trials < expected:
-        raise ValueError(f"Session has {n_trials} trials, expected {expected} for structure {structure}")
-    if n_trials > expected:
-        session_data = session_data[:, :expected]  # trim extras
+    # Process PCx sessions
+    for session in X_pcx_sessions:
+        print("Processing PCx session shape:", session.shape)
+        normalized_session = normalize_session_per_odor_per_neuron(session, structure)
+        # Stack (n, 150) to (x * sessions, 150) 2D array
+        X_all.append(normalized_session)
+        # x * sessions labels
+        for _ in range(normalized_session.shape[0]):
+            y_all.append('PCx')
 
-    reshaped = session_data.reshape(n_neurons, n_odors, n_reps)
-    means = reshaped.mean(axis=2, keepdims=True)
-    stds = reshaped.std(axis=2, keepdims=True)
-    stds = np.where(stds < eps, eps, stds)
-    z = (reshaped - means) / stds
-    return z.reshape(n_neurons, expected)
+    # Process plCoA sessions
+    for session in X_plcoa_sessions:
+        print("Processing plCoA session shape:", session.shape)
+        normalized_session = normalize_session_per_odor_per_neuron(session, structure)
+        X_all.append(normalized_session)
+        for _ in range(normalized_session.shape[0]):
+            y_all.append('plCoA')
 
-
-def pad_neuron_dim(session_data, target_neurons, pad_value=0.0):
-    """Pad neuron dimension to target_neurons with pad_value."""
-    n_neurons, n_trials = session_data.shape
-    if n_neurons == target_neurons:
-        return session_data
-    if n_neurons > target_neurons:
-        # If more neurons than target, truncate extras
-        return session_data[:target_neurons, :]
-    pad_rows = np.full((target_neurons - n_neurons, n_trials), pad_value, dtype=session_data.dtype)
-    return np.vstack([session_data, pad_rows])
+    return np.vstack(X_all), np.array(y_all)
 
 
-def build_normalized_dataset(structure_name, X_pcx, X_plcoa, structure_map=session_structure):
-    """Build flattened dataset with per-odor per-neuron z-scoring."""
-    if structure_name not in structure_map:
-        raise ValueError(f"structure_name '{structure_name}' not in {list(structure_map.keys())}")
-    structure = structure_map[structure_name]
-
-    # Find maximum neuron count across all sessions to pad/truncate consistently
-    max_neurons = 0
-    for sess in X_pcx + X_plcoa:
-        max_neurons = max(max_neurons, sess.shape[0])
-
-    X_all, y_all = [], []
-    for sess in X_pcx:
-        norm = normalize_session_per_odor_neuron(sess, structure)
-        norm = pad_neuron_dim(norm, max_neurons)
-        X_all.append(norm.flatten())
-        y_all.append('PCx')
-    for sess in X_plcoa:
-        norm = normalize_session_per_odor_neuron(sess, structure)
-        norm = pad_neuron_dim(norm, max_neurons)
-        X_all.append(norm.flatten())
-        y_all.append('plCoA')
-
-    return np.array(X_all), np.array(y_all)
-'''
-### Build normalized dataset for Mono condition
-X_all_mono, y_all_mono = build_normalized_dataset('Mono', X_pcx_Mono, X_plcoa_Mono)
-print(X_all_mono.shape)
-print(y_all_mono.shape)
-
-# Build dataframe from X_all_mono and y_all_mono
-df_mono = pd.DataFrame(X_all_mono)
-df_mono['Region'] = y_all_mono
-
-# Class sanity check on same class by training and testing on same class
-X_same_class = X_all_mono[y_all_mono == 'PCx']
-y_same_class = y_all_mono[y_all_mono == 'PCx']
-# y_same_class break into two classes artificially
-y_same_class = np.array(['PCx_A' if i % 2 == 0 else 'PCx_B' for i in range(len(y_same_class))])
-y_preds_same, y_trues_same, acc_same = run_leave_one_out_cv(X_same_class, y_same_class)
-print(f"Same Class SVM Leave-One-Out Accuracy: {acc_same:.4f}")
-
-# Class sanity check on same class by training and testing on same class
-X_same_class = X_all_mono[y_all_mono == 'plCoA']
-y_same_class = y_all_mono[y_all_mono == 'plCoA']
-# y_same_class break into two classes artificially
-y_same_class = np.array(['plCoA_A' if i % 2 == 0 else 'plCoA_B' for i in range(len(y_same_class))])
-y_preds_same, y_trues_same, acc_same = run_leave_one_out_cv(X_same_class, y_same_class)
-print(f"Same Class SVM Leave-One-Out Accuracy: {acc_same:.4f}")
+# Build dataset
+X_pcx_Mono , X_plcoa_Mono = getRegionalData(data)
+X_pcx_Nat , X_plcoa_Nat = getRegionalData(dataNatMixes)
+X_pcx_AA , X_plcoa_AA = getRegionalData(dataAA)
 
 
-# Train as svm classifier with leave one out cross validation
-y_preds_mono, y_trues_mono, acc_mono = run_leave_one_out_cv(X_all_mono, y_all_mono)
-print(f"Mono SVM Leave-One-Out Accuracy: {acc_mono:.4f}")
-# Permutation test
-real_acc_mono, null_accuracies_mono = permutation_test_loocv(X_all_mono, y_all_mono, n_permutations=1000)
-p_value_mono = np.mean([1 if acc >= real_acc_mono else 0 for acc in null_accuracies_mono])
-print(f"Mono Permutation Test p-value: {p_value_mono:.4f}")
-# Plot confusion matrix
-plot_confusion_matrix(y_trues_mono, y_preds_mono, p_value_mono, real_acc_mono)
-'''
+# Describe the shape of X_pcx_Mono and X_plcoa_Mono
+print("X_pcx_Mono shape:", len(X_pcx_Mono))
+print("X_plcoa_Mono shape:", len(X_plcoa_Mono))
 
-'''
-### Build normalized dataset for Nat condition
-X_all_nat, y_all_nat = build_normalized_dataset('Nat', X_pcx_Nat, X_plcoa_Nat)
-print(X_all_nat.shape)
-print(y_all_nat.shape)
+# Print shape of first session in X_pcx_Mono
+print("First session in X_pcx_Mono shape:", X_pcx_Mono[0].shape)
+print("First session in X_plcoa_Mono shape:", X_plcoa_Mono[0].shape)
 
-# Build dataframe from X_all_nat and y_all_nat
-df_nat = pd.DataFrame(X_all_nat)
-df_nat['Region'] = y_all_nat
-# Class sanity check on same class by training and testing on same class
-X_same_class = X_all_nat[y_all_nat == 'PCx']
-y_same_class = y_all_nat[y_all_nat == 'PCx']
-# y_same_class break into two classes artificially
-y_same_class = np.array(['PCx_A' if i % 2 == 0 else 'PCx_B' for i in range(len(y_same_class))])
-y_preds_same, y_trues_same, acc_same = run_leave_one_out_cv(X_same_class, y_same_class)
-print(f"Same Class SVM Leave-One-Out Accuracy: {acc_same:.4f}")
+X, y = build_normalized_dataset('Mono', X_pcx_Mono, X_plcoa_Mono)
+print("X shape:", X.shape)
+print("y shape:", y.shape)
 
-# Class sanity check on same class by training and testing on same class
-X_same_class = X_all_nat[y_all_nat == 'plCoA']
-y_same_class = y_all_nat[y_all_nat == 'plCoA']
-# y_same_class break into two classes artificially
-y_same_class = np.array(['plCoA_A' if i % 2 == 0 else 'plCoA_B' for i in range(len(y_same_class))])
-y_preds_same, y_trues_same, acc_same = run_leave_one_out_cv(X_same_class, y_same_class)
-print(f"Same Class SVM Leave-One-Out Accuracy: {acc_same:.4f}")
+# Number of data points
+print("Number of data points:", X.shape[0])
+print("Number of features:", X.shape[1])
 
 
-# Train as svm classifier with leave one out cross validation
-y_preds_nat, y_trues_nat, acc_nat = run_leave_one_out_cv(X_all_nat, y_all_nat)
-print(f"Nat SVM Leave-One-Out Accuracy: {acc_nat:.4f}")
-# Permutation test
-real_acc_nat, null_accuracies_nat = permutation_test_loocv(X_all_nat, y_all_nat, n_permutations=1000)
-p_value_nat = np.mean([1 if acc >= real_acc_nat else 0 for acc in null_accuracies_nat])
-print(f"Nat Permutation Test p-value: {p_value_nat:.4f}")
-# Plot confusion matrix
-plot_confusion_matrix(y_trues_nat, y_preds_nat, p_value_nat, real_acc_nat)
-'''
+# Train SVM with LOOCV and plot confusion matrix
+y_pred, y_true, real_acc = run_leave_one_out_cv(X, y)
+print(f"Leave-One-Out CV Accuracy: {real_acc:.4f}")
+plot_confusion_matrix(y_true, y_pred, p=0.0, real_acc=real_acc)
 
-
-### Build normalized dataset for AA condition
-X_all_AA, y_all_AA = build_normalized_dataset('AA', X_pcx_AA, X_plcoa_AA)
-print(X_all_AA.shape)
-print(y_all_AA.shape)
-
-# Build dataframe from X_all_AA and y_all_AA
-df_AA = pd.DataFrame(X_all_AA)
-df_AA['Region'] = y_all_AA
-# Class sanity check on same class by training and testing on same class
-X_same_class = X_all_AA[y_all_AA == 'PCx']
-y_same_class = y_all_AA[y_all_AA == 'PCx']
-# y_same_class break into two classes artificially
-y_same_class = np.array(['PCx_A' if i % 2 == 0 else 'PCx_B' for i in range(len(y_same_class))])
-y_preds_same, y_trues_same, acc_same = run_leave_one_out_cv(X_same_class, y_same_class)
-print(f"Same Class SVM Leave-One-Out Accuracy: {acc_same:.4f}")
-
-# Class sanity check on same class by training and testing on same class
-X_same_class = X_all_AA[y_all_AA == 'plCoA']
-y_same_class = y_all_AA[y_all_AA == 'plCoA']
-# y_same_class break into two classes artificially
-y_same_class = np.array(['plCoA_A' if i % 2 == 0 else 'plCoA_B' for i in range(len(y_same_class))])
-y_preds_same, y_trues_same, acc_same = run_leave_one_out_cv(X_same_class, y_same_class)
-print(f"Same Class SVM Leave-One-Out Accuracy: {acc_same:.4f}")
-
-
-# Train as svm classifier with leave one out cross validation
-y_preds_AA, y_trues_AA, acc_AA = run_leave_one_out_cv(X_all_AA, y_all_AA)
-print(f"AA SVM Leave-One-Out Accuracy: {acc_AA:.4f}")
-# Permutation test
-real_acc_AA, null_accuracies_AA = permutation_test_loocv(X_all_AA, y_all_AA, n_permutations=1000)
-p_value_AA = np.mean([1 if acc >= real_acc_AA else 0 for acc in null_accuracies_AA])
-print(f"AA Permutation Test p-value: {p_value_AA:.4f}")
-# Plot confusion matrix
-plot_confusion_matrix(y_trues_AA, y_preds_AA, p_value_AA, real_acc_AA)
-
-
-
-# print("Shape: PCx sessions:", len(X_pcx_Mono))
-# for x in X_pcx_Mono:
-#     print("Session shape:", x.shape)
-# print("Shape: plCoA sessions:", len(X_plcoa_Mono))
-# for x in X_plcoa_Mono:
-#     print("Session shape:", x.shape)
-
-# print("Shape: PCx sessions:", len(X_pcx_Nat))
-# for x in X_pcx_Nat:
-#     print("Session shape:", x.shape)
-# print("Shape: plCoA sessions:", len(X_plcoa_Nat))
-# for x in X_plcoa_Nat:
-#     print("Session shape:", x.shape)
-
-# print("Shape: PCx sessions:", len(X_pcx_AA))
-# for x in X_pcx_AA:
-#     print("Session shape:", x.shape)
-# print("Shape: plCoA sessions:", len(X_plcoa_AA))
-# for x in X_plcoa_AA:
-#     print("Session shape:", x.shape)
-
+# Run permutation test with LOOCV
+real_acc, null_accuracies = permutation_test_loocv(X, y, n_permutations=100)
+p_value = np.mean([1 if acc >= real_acc else 0 for acc in null_accuracies])
+print(f"Real accuracy: {real_acc:.4f}, p-value: {p_value:.4f}")
