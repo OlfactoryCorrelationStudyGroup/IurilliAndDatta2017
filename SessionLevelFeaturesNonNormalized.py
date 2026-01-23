@@ -59,12 +59,38 @@ def run_leave_one_out_cv(X_all, y_all, clf=None):
     loo = LeaveOneOut()
     y_preds = []
     y_trues = []
+    skipped_folds = 0
 
     for train_idx, test_idx in loo.split(X_all):
-        X_train = np.array([X_all[i] for i in train_idx])
-        y_train = np.array([y_all[i] for i in train_idx])
-        X_test = np.array([X_all[i] for i in test_idx])
-        y_test = np.array([y_all[i] for i in test_idx])
+        X_train = X_all[train_idx]
+        y_train = np.array(y_all)[train_idx]
+        X_test = X_all[test_idx]
+        y_test = np.array(y_all)[test_idx]
+
+        # Check if training set has at least one sample from each class
+        unique_train_classes = np.unique(y_train)
+        unique_all_classes = np.unique(y_all)
+        
+        if len(unique_train_classes) < len(unique_all_classes):
+            # Skip this fold - training set doesn't have all classes
+            skipped_folds += 1
+            # For skipped folds, predict randomly from available classes
+            y_preds.append(np.random.choice(unique_all_classes))
+            y_trues.append(y_test[0])
+            continue
+        
+        # Additional check: ensure we have at least 2 samples of each class for stable training
+        train_class_counts = {cls: np.sum(y_train == cls) for cls in unique_train_classes}
+        min_count = min(train_class_counts.values())
+        
+        if min_count == 1:
+            # Skip this fold - one class has only 1 sample, which may cause issues
+            skipped_folds += 1
+            # For skipped folds, predict the most common class in the training set
+            most_common_class = max(train_class_counts, key=train_class_counts.get)
+            y_preds.append(most_common_class)
+            y_trues.append(y_test[0])
+            continue
 
         # Fold-wise scaling: fit on training fold, apply to train and test
         # scaler = StandardScaler()
@@ -76,6 +102,9 @@ def run_leave_one_out_cv(X_all, y_all, clf=None):
 
         y_preds.append(pred[0])
         y_trues.append(y_test[0])
+
+    if skipped_folds > 0:
+        print(f"Warning: Skipped {skipped_folds} folds due to missing classes in training set")
 
     acc = accuracy_score(y_trues, y_preds)
     return y_preds, y_trues, acc
@@ -186,6 +215,44 @@ print("y shape:", y.shape)
 # Number of data points
 print("Number of data points:", X.shape[0])
 print("Number of features:", X.shape[1])
+
+
+# Sanity check for each class
+print("Sanity check - class distribution:")
+# Check class distribution
+unique, counts = np.unique(y, return_counts=True)
+class_distribution = dict(zip(unique, counts))
+for class_label, count in class_distribution.items():
+    print(f"Class {class_label}: {count} samples")
+
+# Split data in same class to 2 different hypothetical classes and check LOOCV accuracy: PCx
+X_pcx_only = X[y == 'PCx']
+y_pcx_only = y[y == 'PCx'].copy().astype('U10')  # Use Unicode string with max length 10
+print(f"y_pcx_only dtype: {y_pcx_only.dtype}, shape: {y_pcx_only.shape}")
+# Random shuffle indices
+indices_pcx = list(range(len(X_pcx_only)))
+random.shuffle(indices_pcx)
+y_pcx_only[indices_pcx[:len(y_pcx_only)//2]] = 'PCx_A'
+y_pcx_only[indices_pcx[len(y_pcx_only)//2:]] = 'PCx_B'
+# Train model and check accuracy
+_, _, acc = run_leave_one_out_cv(X_pcx_only, y_pcx_only)
+print(f"LOOCV accuracy after splitting PCx into 2 classes: {acc:.4f}")
+
+
+# Split data in same class to 2 different hypothetical classes and check LOOCV accuracy: plCoA
+X_plcoa_only = X[y == 'plCoA']
+y_plcoa_only = y[y == 'plCoA'].copy().astype('U10')  # Use Unicode string with max length 10
+print(f"y_plcoa_only dtype: {y_plcoa_only.dtype}, shape: {y_plcoa_only.shape}")
+# Random shuffle indices
+indices_plcoa = list(range(len(X_plcoa_only)))
+random.shuffle(indices_plcoa)
+y_plcoa_only[indices_plcoa[:len(y_plcoa_only)//2]] = 'plCoA_A'
+y_plcoa_only[indices_plcoa[len(y_plcoa_only)//2:]] = 'plCoA_B'
+# Train model and check accuracy
+_, _, acc = run_leave_one_out_cv(X_plcoa_only, y_plcoa_only)
+print(f"LOOCV accuracy after splitting plCoA into 2 classes: {acc:.4f}")
+
+
 
 
 # Train SVM with LOOCV and plot confusion matrix
