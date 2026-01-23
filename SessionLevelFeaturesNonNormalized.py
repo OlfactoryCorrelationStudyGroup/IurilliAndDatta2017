@@ -129,7 +129,7 @@ def permutation_test_loocv(X_all, y_all, n_permutations=100, clf=None, use_kfold
         
         if use_kfold:
             # Use k-fold for permutations (much faster)
-            acc = run_kfold_cv(X_all, y_shuffled, clf=clf, n_folds=n_folds)
+            acc = run_kfold_cv(X_all, y_shuffled, clf=clf, n_folds=n_folds, verbose=verbose)
         else:
             _, _, acc = run_leave_one_out_cv(X_all, y_shuffled, clf=clf)
         
@@ -140,7 +140,7 @@ def permutation_test_loocv(X_all, y_all, n_permutations=100, clf=None, use_kfold
     return real_acc, null_accuracies
 
 # Faster k-fold CV alternative for permutation tests
-def run_kfold_cv(X_all, y_all, clf=None, n_folds=5):
+def run_kfold_cv(X_all, y_all, clf=None, n_folds=5, verbose=False):
     """Run k-fold CV (much faster than LOOCV for permutation tests)."""
     if clf is None:
         clf = SVC(kernel='linear', C=1)
@@ -160,7 +160,8 @@ def run_kfold_cv(X_all, y_all, clf=None, n_folds=5):
         
         y_preds.extend(preds)
         y_trues.extend(y_test)
-    
+        if verbose:
+            print(f"  Completed fold with {len(test_idx)} samples")
     acc = accuracy_score(y_trues, y_preds)
     return acc
 
@@ -254,3 +255,13 @@ plot_confusion_matrix(y_true, y_pred, p=0.0, real_acc=real_acc)
 real_acc, null_accuracies = permutation_test_loocv(X, y, n_permutations=100, use_kfold=True, n_folds=5)
 p_value = np.mean([1 if acc >= real_acc else 0 for acc in null_accuracies])
 print(f"\nReal accuracy: {real_acc:.4f}, p-value: {p_value:.4f}")
+
+# Plot histogram of null accuracies
+plt.figure(figsize=(8, 5))
+plt.hist(null_accuracies, bins=20, color='skyblue', edgecolor='black')
+plt.axvline(real_acc, color='red', linestyle='dashed', linewidth=2, label=f'Real Accuracy: {real_acc:.4f}')
+plt.title('Null Distribution of Accuracies from Permutation Test')
+plt.xlabel('Accuracy')
+plt.ylabel('Frequency')
+plt.legend()
+plt.show()
