@@ -38,6 +38,9 @@ dataAA = h5py.File('data/region_sessions_AA.mat')
 dataNatMixes = h5py.File('data/region_sessions_natMix.mat')
 list(data.keys())
 
+# Trials-per-odor layout (set to actual counts, e.g., [reps_odor1, reps_odor2, ...])
+ODOR_BLOCK_SIZES = None
+
 
 # create 2 array with all sessions from each region
 def getRegionalData (data):
@@ -48,6 +51,43 @@ def getRegionalData (data):
     for sess in data['x_plcoa']:
         X_plcoa.append(np.array(data[sess[0]]))
     return X_pcx,X_plcoa
+
+
+# Per-odor z-scoring ---------------------------------------------------------
+def zscore_session_by_blocks(session_data, block_sizes, eps=1e-8):
+    """Z-score each odor block independently (per neuron).
+
+    Parameters
+    ----------
+    session_data : ndarray
+        Shape (n_neurons, n_trials). Assumed to be odor-baseline subtracted.
+    block_sizes : list[int]
+        Trials per odor in concatenated order, e.g., [reps_odor1, reps_odor2, ...].
+    eps : float
+        Minimum std to avoid division by zero.
+    """
+    if block_sizes is None:
+        raise ValueError("Set ODOR_BLOCK_SIZES to trials per odor, e.g., [reps_odor1, reps_odor2, ...].")
+    total = sum(block_sizes)
+    if session_data.shape[1] != total:
+        raise ValueError(f"Block sizes ({total}) do not match trial count ({session_data.shape[1]}).")
+
+    out = session_data.copy()
+    start = 0
+    for block_len in block_sizes:
+        end = start + block_len
+        block = session_data[:, start:end]
+        mu = block.mean(axis=1, keepdims=True)
+        sigma = block.std(axis=1, keepdims=True)
+        sigma = np.where(sigma < eps, eps, sigma)
+        out[:, start:end] = (block - mu) / sigma
+        start = end
+    return out
+
+
+def zscore_sessions(sessions, block_sizes, eps=1e-8):
+    """Apply per-odor z-scoring to a list of sessions."""
+    return [zscore_session_by_blocks(sess, block_sizes, eps) for sess in sessions]
 
 # A. Firing Rate Stats - Discriptive features
 def mean_response(session_data):
@@ -530,10 +570,17 @@ def permutation_test_loocv(X_all, y_all, n_permutations=100, clf=None):
 
     return real_acc, null_accuracies
 
-# Build dataset
+# Build dataset with per-odor z-scoring
 X_pcx , X_plcoa = getRegionalData(data)
 X_pcx_Nat , X_plcoa_Nat = getRegionalData(dataNatMixes)
 X_pcx_AA , X_plcoa_AA = getRegionalData(dataAA)
+
+X_pcx = zscore_sessions(X_pcx, ODOR_BLOCK_SIZES)
+X_plcoa = zscore_sessions(X_plcoa, ODOR_BLOCK_SIZES)
+X_pcx_Nat = zscore_sessions(X_pcx_Nat, ODOR_BLOCK_SIZES)
+X_plcoa_Nat = zscore_sessions(X_plcoa_Nat, ODOR_BLOCK_SIZES)
+X_pcx_AA = zscore_sessions(X_pcx_AA, ODOR_BLOCK_SIZES)
+X_plcoa_AA = zscore_sessions(X_plcoa_AA, ODOR_BLOCK_SIZES)
 X_all = []
 y_all = []
 

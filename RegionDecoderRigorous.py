@@ -5,7 +5,7 @@ Rigorous Session-Level Region Decoder (PCx vs plCoA)
 
 Methodological Requirements:
 - Session-level cross-validation (no data leakage)
-- Per-neuron, per-session baseline normalization
+- Per-odor, per-neuron z-scoring of responses
 - Biologically interpretable features
 - Linear classifier with proper controls
 - Label-shuffled control analysis
@@ -46,51 +46,45 @@ def load_regional_sessions(filepath):
 
 
 # ============================================================================
-# NOISE NORMALIZATION (Per-Neuron, Per-Session Scaling Only)
+# ODOR-BLOCK Z-SCORING (per odor, per neuron)
 # ============================================================================
 
-def compute_baseline_stats(session_data, baseline_idx):
-    """Compute baseline statistics for noise normalization.
-    
+def zscore_session_by_blocks(session_data, block_sizes, eps=1e-8):
+    """Z-score each odor block independently.
+
     Parameters
     ----------
     session_data : ndarray
-        Shape (n_neurons, n_trials). Δ firing rates (baseline already subtracted).
-    baseline_idx : slice or array
-        Indices of baseline trials (e.g., slice(0, 10) for first 10 trials).
-    
-    Returns
-    -------
-    ndarray
-        Shape (n_neurons, 1). Baseline standard deviation per neuron.
+        Shape (n_neurons, n_trials). Assumed to already be (odor - baseline).
+    block_sizes : list[int]
+        Trials per odor in the concatenated layout, e.g., [reps_odor1, reps_odor2, ...].
+    eps : float
+        Minimum std to avoid division by zero.
     """
-    baseline = session_data[:, baseline_idx]
-    baseline_std = baseline.std(axis=1, keepdims=True)
-    # Prevent division by zero
-    baseline_std = np.where(baseline_std < 1e-8, 1e-8, baseline_std)
-    return baseline_std
+    if block_sizes is None:
+        raise ValueError("block_sizes must be provided for per-odor z-scoring.")
+    total_trials = sum(block_sizes)
+    if session_data.shape[1] != total_trials:
+        raise ValueError(
+            f"Block sizes ({total_trials}) do not match trial count ({session_data.shape[1]})."
+        )
+
+    out = session_data.copy()
+    start = 0
+    for block_len in block_sizes:
+        end = start + block_len
+        block = session_data[:, start:end]
+        mu = block.mean(axis=1, keepdims=True)
+        sigma = block.std(axis=1, keepdims=True)
+        sigma = np.where(sigma < eps, eps, sigma)
+        out[:, start:end] = (block - mu) / sigma
+        start = end
+    return out
 
 
-def apply_noise_normalization(session_data, baseline_std):
-    """Apply noise normalization using pre-computed baseline statistics.
-    
-    CRITICAL: Data is assumed to already be baseline-subtracted (Δ firing rates).
-    This function only applies scaling by baseline standard deviation to 
-    preserve response magnitude while normalizing for noise differences.
-    
-    Parameters
-    ----------
-    session_data : ndarray
-        Shape (n_neurons, n_trials). Δ firing rates (baseline already subtracted).
-    baseline_std : ndarray
-        Shape (n_neurons, 1). Pre-computed baseline standard deviations.
-    
-    Returns
-    -------
-    ndarray
-        Noise-normalized session, same shape as input.
-    """
-    return session_data / baseline_std
+def zscore_sessions(sessions, block_sizes, eps=1e-8):
+    """Apply per-odor z-scoring to a list of sessions."""
+    return [zscore_session_by_blocks(sess, block_sizes, eps) for sess in sessions]
 
 
 # ============================================================================
@@ -103,7 +97,7 @@ def extract_mean_firing_rates(session_data, odor_idx):
     Parameters
     ----------
     session_data : ndarray
-        Shape (n_neurons, n_trials), already baseline-normalized.
+        Shape (n_neurons, n_trials), already odor-block z-scored.
     odor_idx : slice or array
         Indices of post-odor response trials.
     
@@ -157,7 +151,10 @@ def extract_pca_features(session_data, odor_idx, pca_model=None, n_components=10
 # ============================================================================
 
 class SessionLevelDecoder:
-    """Session-level region decoder with rigorous cross-validation."""
+    """Session-level region decoder with rigorous cross-validation.
+
+    Expects input sessions to already be per-odor z-scored (per neuron).
+    """
     
     def __init__(self, feature_type='mean_firing', classifier='linear_svm', n_pca=10):
         """
@@ -170,14 +167,13 @@ class SessionLevelDecoder:
         n_pca : int
             Number of PCA components if feature_type='pca'
         
-        Note: Baseline normalization is now fixed to noise normalization only
-        (scaling by baseline std, no mean subtraction as data is already Δ firing rates)
+        Note: Inputs are assumed to be odor-block z-scored; no additional
+        baseline normalization is applied inside the decoder.
         """
         self.feature_type = feature_type
         self.classifier_type = classifier
         self.n_pca = n_pca
         self.max_features = None  # Will be set during CV
-        self.baseline_stats = {}  # Store training baseline stats for consistent normalization
     
     @staticmethod
     def pad_features(features, target_length):
@@ -189,66 +185,37 @@ class SessionLevelDecoder:
         else:
             return features
         
-    def extract_session_features(self, session, baseline_idx, odor_idx, 
+    def extract_session_features(self, session, odor_idx=None, 
                                 session_id=None, pca_model=None, is_training=False):
-        """Extract features from one session with proper noise normalization.
-        
-        METHODOLOGICAL NOTE: For test sessions, baseline statistics are computed
-        from the test session's own baseline trials (not odor trials). This is
-        methodologically sound as baseline trials are independent of the odor
-        response patterns used for classification.
-        
+        """Extract features from one session.
+
         Parameters
         ----------
         session : ndarray
-            Shape (n_neurons, n_trials). Δ firing rates (baseline already subtracted).
-        baseline_idx : slice or array
-            Indices of baseline trials for computing noise statistics.
-        odor_idx : slice or array  
-            Indices of post-odor response trials.
+            Shape (n_neurons, n_trials). Already z-scored per odor block.
+        odor_idx : slice or array, optional
+            Trials to include for feature extraction (default: all trials).
         session_id : str or int
             Unique identifier for this session.
         pca_model : PCA or None
             Pre-fitted PCA from training data.
         is_training : bool
-            Whether this is a training session (compute new stats) or test (use stored stats).
-        
-        Returns
-        -------
-        features : ndarray
-            Extracted features for this session.
-        pca_model : PCA or None
-            Updated PCA model (only for training sessions).
+            Whether this is a training session (affects PCA fitting only).
         """
-        # 1. Noise normalization (scaling only, no mean subtraction)
-        if is_training:
-            # Compute and store baseline statistics for training sessions
-            baseline_std = compute_baseline_stats(session, baseline_idx)
-            self.baseline_stats[session_id] = baseline_std
-        else:
-            # For test sessions, compute baseline std from the test session itself
-            # but use a regularization approach based on training data statistics
-            test_baseline_std = compute_baseline_stats(session, baseline_idx)
-            
-            # Use the test session's own baseline std (most appropriate for that session's neurons)
-            # This is methodologically sound since we're only using the test session's baseline
-            # trials, not its odor response trials
-            baseline_std = test_baseline_std
-        
-        normalized = apply_noise_normalization(session, baseline_std)
-        
-        # 2. Extract features
+        del session_id  # retained for interface symmetry, unused here
+        odor_idx = slice(None) if odor_idx is None else odor_idx
+
         if self.feature_type == 'mean_firing':
-            features = extract_mean_firing_rates(normalized, odor_idx)
+            features = extract_mean_firing_rates(session, odor_idx)
             return features, None
         elif self.feature_type == 'pca':
-            features, pca_model = extract_pca_features(normalized, odor_idx, pca_model, self.n_pca)
+            features, pca_model = extract_pca_features(session, odor_idx, pca_model, self.n_pca)
             return features, pca_model
         else:
             raise ValueError(f"Unknown feature_type: {self.feature_type}")
     
     def leave_one_session_out_cv(self, sessions_pcx, sessions_plcoa, 
-                                  baseline_idx, odor_idx, verbose=True):
+                                  odor_idx=None, verbose=True):
         """Run leave-one-session-out cross-validation.
         
         Returns
@@ -277,9 +244,6 @@ class SessionLevelDecoder:
         for test_idx in range(n_sessions):
             train_idx = [i for i in range(n_sessions) if i != test_idx]
             
-            # Reset baseline statistics for this CV fold
-            self.baseline_stats = {}
-            
             # === TRAINING PHASE ===
             # Extract features from training sessions only
             X_train = []
@@ -288,7 +252,7 @@ class SessionLevelDecoder:
             
             for i in train_idx:
                 feat, pca_model = self.extract_session_features(
-                    all_sessions[i], baseline_idx, odor_idx, 
+                    all_sessions[i], odor_idx, 
                     session_id=f"train_{i}", pca_model=pca_model, is_training=True
                 )
                 # Pad to consistent length
@@ -312,7 +276,7 @@ class SessionLevelDecoder:
             # === TEST PHASE ===
             # Extract features from test session using training-derived statistics
             X_test, _ = self.extract_session_features(
-                all_sessions[test_idx], baseline_idx, odor_idx, 
+                all_sessions[test_idx], odor_idx, 
                 session_id=f"test_{test_idx}", pca_model=pca_model, is_training=False
             )
             # Pad to consistent length
@@ -343,8 +307,8 @@ class SessionLevelDecoder:
             'confusion_matrix': cm
         }
     
-    def permutation_control(self, sessions_pcx, sessions_plcoa, baseline_idx, 
-                           odor_idx, n_permutations=100, verbose=True):
+    def permutation_control(self, sessions_pcx, sessions_plcoa, odor_idx=None, 
+                           n_permutations=100, verbose=True):
         """Run label-shuffled control to test for data leakage.
         
         Expected accuracy should be ~0.5 (chance).
@@ -365,7 +329,7 @@ class SessionLevelDecoder:
             
             # Run CV with shuffled labels
             results = self.leave_one_session_out_cv(
-                shuffled_pcx, shuffled_plcoa, baseline_idx, odor_idx, verbose=False
+                shuffled_pcx, shuffled_plcoa, odor_idx, verbose=False
             )
             null_accuracies.append(results['accuracy'])
         
@@ -430,13 +394,14 @@ def plot_results(results, null_accuracies=None):
 def run_analysis(data_file='data/region_sessions_Notnormalized.mat',
                  feature_type='mean_firing',
                  classifier='linear_svm',
-                 n_permutations=100):
+                 n_permutations=100,
+                 odor_block_sizes=None):
     """
-    Run complete analysis pipeline with noise-normalized firing rates.
+    Run complete analysis pipeline with per-odor z-scored firing rates.
     
-    CRITICAL: Assumes input data contains Δ firing rates (baseline already subtracted).
-    This pipeline applies noise normalization only (scaling by baseline std) to
-    preserve biologically meaningful response magnitudes.
+    CRITICAL: Assumes input data contains Δ firing rates (odor - baseline).
+    This pipeline applies per-odor, per-neuron z-scoring: subtract mean and
+    divide by std across repetitions for each odor block.
     
     Parameters
     ----------
@@ -448,13 +413,15 @@ def run_analysis(data_file='data/region_sessions_Notnormalized.mat',
         'ridge' or 'linear_svm' 
     n_permutations : int
         Number of permutation tests for control
+    odor_block_sizes : list[int]
+        Trials per odor in concatenated trial order (required).
     """
     
     print("="*70)
     print("RIGOROUS SESSION-LEVEL REGION DECODER")
     print("="*70)
-    print("Normalization: Noise normalization (scaling by baseline std only)")
-    print("Input: Δ firing rates (baseline already subtracted)")
+    print("Normalization: Per-odor z-scoring (per neuron)")
+    print("Input: Δ firing rates (odor - baseline)")
     print(f"Feature type: {feature_type}")
     print(f"Classifier: {classifier}")
     print()
@@ -466,11 +433,16 @@ def run_analysis(data_file='data/region_sessions_Notnormalized.mat',
     print(f"  plCoA sessions: {len(X_plcoa)}")
     print(f"  Session shapes (example): {X_pcx[0].shape}")
     print()
-    
-    # Define baseline and odor trial indices
-    # Assuming structure: first 10 trials = baseline, remaining = odor responses
-    baseline_idx = slice(0, 10)
-    odor_idx = slice(10, None)
+
+    if odor_block_sizes is None:
+        raise ValueError("Provide odor_block_sizes matching the trial layout, e.g., [reps_odor1, reps_odor2, ...].")
+
+    # Per-odor z-score each session (per neuron)
+    X_pcx = zscore_sessions(X_pcx, odor_block_sizes)
+    X_plcoa = zscore_sessions(X_plcoa, odor_block_sizes)
+
+    # Use all trials; data are already z-scored within odor blocks
+    odor_idx = slice(None)
     
     # Initialize decoder
     decoder = SessionLevelDecoder(
@@ -481,13 +453,13 @@ def run_analysis(data_file='data/region_sessions_Notnormalized.mat',
     
     # Run cross-validation
     print("Running Leave-One-Session-Out Cross-Validation...")
-    results = decoder.leave_one_session_out_cv(X_pcx, X_plcoa, baseline_idx, odor_idx)
+    results = decoder.leave_one_session_out_cv(X_pcx, X_plcoa, odor_idx)
     print()
     
     # Run permutation control
     print("Running Permutation Control...")
     null_accuracies = decoder.permutation_control(
-        X_pcx, X_plcoa, baseline_idx, odor_idx, n_permutations
+        X_pcx, X_plcoa, odor_idx, n_permutations
     )
     print()
     
@@ -508,9 +480,9 @@ def run_analysis(data_file='data/region_sessions_Notnormalized.mat',
     print("="*70)
     print("INTERPRETATION")
     print("="*70)
-    print("NORMALIZATION: Noise-normalized Δ firing rates (preserves response magnitude)")
+    print("NORMALIZATION: Per-odor, per-neuron z-scored Δ firing rates")
     print("INPUT DATA: Baseline-subtracted firing rates (odor - baseline)")
-    print("SCALING: Per-neuron division by baseline standard deviation")
+    print("SCALING: Odor-block mean subtraction and std division")
     print()
     if feature_type == 'mean_firing':
         print("The classifier uses noise-normalized mean post-odor Δ firing rates per neuron.")
@@ -552,7 +524,8 @@ if __name__ == '__main__':
     results_mean, null_mean = run_analysis(
         feature_type='mean_firing',
         classifier='linear_svm',
-        n_permutations=100
+        n_permutations=100,
+        odor_block_sizes=[10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]  # TODO: set to [reps_odor1, reps_odor2, ...] matching trial layout
     )
     
     # Optional: Run with PCA features

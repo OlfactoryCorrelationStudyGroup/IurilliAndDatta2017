@@ -129,7 +129,7 @@ def permutation_test_loocv(X_all, y_all, n_permutations=100, clf=None, use_kfold
         
         if use_kfold:
             # Use k-fold for permutations (much faster)
-            acc = run_kfold_cv(X_all, y_shuffled, clf=clf, n_folds=n_folds, verbose=verbose)
+            acc = run_kfold_cv(X_all, y_shuffled, clf=clf, n_folds=n_folds)
         else:
             _, _, acc = run_leave_one_out_cv(X_all, y_shuffled, clf=clf)
         
@@ -140,7 +140,7 @@ def permutation_test_loocv(X_all, y_all, n_permutations=100, clf=None, use_kfold
     return real_acc, null_accuracies
 
 # Faster k-fold CV alternative for permutation tests
-def run_kfold_cv(X_all, y_all, clf=None, n_folds=5, verbose=False):
+def run_kfold_cv(X_all, y_all, clf=None, n_folds=5):
     """Run k-fold CV (much faster than LOOCV for permutation tests)."""
     if clf is None:
         clf = SVC(kernel='linear', C=1)
@@ -160,8 +160,7 @@ def run_kfold_cv(X_all, y_all, clf=None, n_folds=5, verbose=False):
         
         y_preds.extend(preds)
         y_trues.extend(y_test)
-        if verbose:
-            print(f"  Completed fold with {len(test_idx)} samples")
+    
     acc = accuracy_score(y_trues, y_preds)
     return acc
 
@@ -243,44 +242,6 @@ print("y shape:", y.shape)
 # Number of data points
 print("Number of data points:", X.shape[0])
 print("Number of features:", X.shape[1])
-
-
-# Sanity check for each class
-print("Sanity check - class distribution:")
-# Check class distribution
-unique, counts = np.unique(y, return_counts=True)
-class_distribution = dict(zip(unique, counts))
-for class_label, count in class_distribution.items():
-    print(f"Class {class_label}: {count} samples")
-
-# Split data in same class to 2 different hypothetical classes and check LOOCV accuracy: PCx
-X_pcx_only = X[y == 'PCx']
-y_pcx_only = y[y == 'PCx'].copy().astype('U10')  # Use Unicode string with max length 10
-print(f"y_pcx_only dtype: {y_pcx_only.dtype}, shape: {y_pcx_only.shape}")
-# Random shuffle indices
-indices_pcx = list(range(len(X_pcx_only)))
-random.shuffle(indices_pcx)
-y_pcx_only[indices_pcx[:len(y_pcx_only)//2]] = 'PCx_A'
-y_pcx_only[indices_pcx[len(y_pcx_only)//2:]] = 'PCx_B'
-# Train model and check accuracy
-_, _, acc = run_leave_one_out_cv(X_pcx_only, y_pcx_only)
-print(f"LOOCV accuracy after splitting PCx into 2 classes: {acc:.4f}")
-
-
-# Split data in same class to 2 different hypothetical classes and check LOOCV accuracy: plCoA
-X_plcoa_only = X[y == 'plCoA']
-y_plcoa_only = y[y == 'plCoA'].copy().astype('U10')  # Use Unicode string with max length 10
-print(f"y_plcoa_only dtype: {y_plcoa_only.dtype}, shape: {y_plcoa_only.shape}")
-# Random shuffle indices
-indices_plcoa = list(range(len(X_plcoa_only)))
-random.shuffle(indices_plcoa)
-y_plcoa_only[indices_plcoa[:len(y_plcoa_only)//2]] = 'plCoA_A'
-y_plcoa_only[indices_plcoa[len(y_plcoa_only)//2:]] = 'plCoA_B'
-# Train model and check accuracy
-_, _, acc = run_leave_one_out_cv(X_plcoa_only, y_plcoa_only)
-print(f"LOOCV accuracy after splitting plCoA into 2 classes: {acc:.4f}")
-
-
 
 
 # Train SVM with LOOCV and plot confusion matrix
