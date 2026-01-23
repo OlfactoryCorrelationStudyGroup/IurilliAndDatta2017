@@ -54,7 +54,7 @@ def getRegionalData (data):
 # SVM with Leave one out testing
 def run_leave_one_out_cv(X_all, y_all, clf=None, verbose=False):
     if clf is None:
-        clf = SVC(kernel='linear', C=1)
+        clf = SVC(kernel='rbf', C=1)
 
     loo = LeaveOneOut()
     y_preds = []
@@ -143,7 +143,7 @@ def permutation_test_loocv(X_all, y_all, n_permutations=100, clf=None, use_kfold
 def run_kfold_cv(X_all, y_all, clf=None, n_folds=5, verbose=False):
     """Run k-fold CV (much faster than LOOCV for permutation tests)."""
     if clf is None:
-        clf = SVC(kernel='linear', C=1)
+        clf = SVC(kernel='rbf', C=1)
     
     skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=42)
     y_preds = []
@@ -228,22 +228,17 @@ X_pcx_Nat , X_plcoa_Nat = getRegionalData(dataNatMixes)
 X_pcx_AA , X_plcoa_AA = getRegionalData(dataAA)
 
 
-# Describe the shape of X_pcx_Mono and X_plcoa_Mono
-print("X_pcx_Mono shape:", len(X_pcx_Mono))
-print("X_plcoa_Mono shape:", len(X_plcoa_Mono))
+# X, y = build_normalized_dataset('Mono', X_pcx_Mono, X_plcoa_Mono)
+# print("X shape:", X.shape)
+# print("y shape:", y.shape)
 
-# Print shape of first session in X_pcx_Mono
-print("First session in X_pcx_Mono shape:", X_pcx_Mono[0].shape)
-print("First session in X_plcoa_Mono shape:", X_plcoa_Mono[0].shape)
+# X, y = build_normalized_dataset('AA', X_pcx_AA, X_plcoa_AA)
+# print("X shape:", X.shape)
+# print("y shape:", y.shape)
 
-X, y = build_normalized_dataset('Mono', X_pcx_Mono, X_plcoa_Mono)
+X, y = build_normalized_dataset('Nat', X_pcx_Nat, X_plcoa_Nat)
 print("X shape:", X.shape)
 print("y shape:", y.shape)
-
-# Number of data points
-print("Number of data points:", X.shape[0])
-print("Number of features:", X.shape[1])
-
 
 # Sanity check for each class
 print("Sanity check - class distribution:")
