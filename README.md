@@ -105,22 +105,22 @@ jupyter notebook
 
 ## Expected Results
 
-- **GNN Performance**: ~85-95% accuracy with proper generalization
-- **SVM Baseline**: ~70-85% accuracy depending on kernel choice
+- **GNN Performance**: ~79% accuracy with proper generalization
+- **SVM Baseline**: ~70% accuracy on linear Kernel (RBF showed no significant improvement)
 - **Cross-validation**: Leave-one-session-out validation ensures robust evaluation
 
 ## Understanding the Output
 
 ### Training Progress
 ```
-Epoch 21/100, Loss: 0.3456, Training Accuracy: 87.50%
-Epoch 41/100, Loss: 0.2134, Training Accuracy: 93.75%
+Epoch 1/1000, Loss: 0.6916, Training Accuracy: 54.55%
+Epoch 21/1000, Loss: 0.6853, Training Accuracy: 54.55%
 ...
 ```
 
 ### Final Results
 ```
-Held-out Test Accuracy: 89.47%
+Held-out Test Accuracy: 78.57%
 ```
 
 Plus confusion matrices and training curves showing model performance.
