@@ -125,7 +125,7 @@ Held-out Test Accuracy: 78.57%
 ```
 ![Confusion Matrix](plots/ConfusionMatGNN.png)
 
-Plus confusion matrices and training curves showing model performance.
+Plus confusion matrices and training curves showing model performance (As show above).
 
 ## Key Features
 
