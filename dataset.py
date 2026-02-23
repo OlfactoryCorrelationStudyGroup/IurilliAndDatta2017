@@ -15,6 +15,7 @@ from scipy import io
 from scipy.sparse import csc_array
 
 
+
 #class IurilliAndDatta2017(Dataset):
 
     #def __init__(self, root_dir, transform=None):
@@ -83,7 +84,6 @@ from scipy.sparse import csc_array
 def get_data(file_path):
 
     mat_data = io.loadmat(file_path,squeeze_me=True,struct_as_record=False)
-
     # Access a specific variable
     return mat_data['espe']
 
@@ -154,7 +154,7 @@ def preprocess_2(data,baseline_start=2000,resp_start=4000,resp_end=10000):
 
 
 
-file_path = r'D:\!Studying\NeuroData\ML\final_project_ML\group_github\IurilliAndDatta2017\data\aPCx_15.mat'
+file_path = r'data\aPCx_15.mat'
 
 data = get_data(file_path=file_path)
 
