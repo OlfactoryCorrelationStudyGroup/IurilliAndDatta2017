@@ -1,0 +1,30 @@
+# Core scientific computing
+numpy>=1.21.0
+pandas>=1.3.0
+scipy>=1.7.0
+
+# Machine learning
+scikit-learn>=1.0.0
+
+# Visualization
+matplotlib>=3.4.0
+seaborn>=0.11.0
+
+# Deep learning - PyTorch
+torch>=1.11.0
+torch-geometric>=2.0.0
+
+# Data handling
+h5py>=3.1.0
+Pillow>=8.2.0
+
+# Optional but recommended for performance
+# Uncomment if using CUDA
+# torch-scatter
+# torch-sparse
+# torch-cluster
+# torch-spline-conv
+
+# Development/Interactive tools (optional)
+# jupyter>=1.0.0
+# ipykernel>=6.0.0
