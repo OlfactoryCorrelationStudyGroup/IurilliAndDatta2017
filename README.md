@@ -117,11 +117,13 @@ Epoch 1/1000, Loss: 0.6916, Training Accuracy: 54.55%
 Epoch 21/1000, Loss: 0.6853, Training Accuracy: 54.55%
 ...
 ```
+![Training Loss and Acc](plots/TrainLossAcc.png)
 
 ### Final Results
 ```
 Held-out Test Accuracy: 78.57%
 ```
+![Confusion Matrix](plots/ConfusionMatGNN.png)
 
 Plus confusion matrices and training curves showing model performance.
 
