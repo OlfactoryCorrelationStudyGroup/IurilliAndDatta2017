@@ -16,7 +16,7 @@ from sklearn.metrics import accuracy_score, confusion_matrix
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import shuffle
 from sklearn.metrics.pairwise import cosine_similarity
-
+from sklearn.inspection import permutation_importance
 
 # --- Paths (edit these) ---
 PATH_MONO = "/Users/ofekh/Library/CloudStorage/OneDrive-Bar-IlanUniversity-Students/MachineLearning_HW/FinalProject_HelperFunctions/region_sessions_Notnormalized.mat"
@@ -34,7 +34,22 @@ SHOW_PLOTS = True      # set False to avoid plt.show blocking
 PRINT_DEBUG = True
 RANDOM_STATE = 42      # used in control split
 
-
+# --- Defining feature names ---
+FEATURE_NAMES = [
+    "mean_response",
+    "std_response",
+    "std_per_neuron",
+    "mean_peak_response",
+    "fraction_excited",
+    "fraction_suppressed",
+    "mean_trial_corr",
+    "trial_var_ratio",
+    "neuronal_consistency",
+    "pairwise_neuron_corr_mean",
+    "pc1_explained_var",
+    "dimensionality_ratio",
+    "participation_ratio"
+]
 #%% ============================================================
 # 1) Loading helpers
 # ==============================================================
@@ -354,6 +369,43 @@ def permutation_test(X, y, n_perm=N_PERMUTATIONS):
     p = (1 + sum(a >= real_acc for a in null)) / (1 + len(null))
     return real_acc, null, p, real_preds, real_truths
 
+#%% ============================================================
+# 7) Permutation feature important analysis
+# ==============================================================
+
+def feature_importance_analysis(X, y, feature_names):
+    
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    model = SVC(kernel="linear", C=1)
+    model.fit(X_scaled, y)
+
+    result = permutation_importance(
+        model,
+        X_scaled,
+        y,
+        n_repeats=200,
+        random_state=42,
+        scoring="accuracy"
+    )
+
+    importances = result.importances_mean
+    std = result.importances_std
+
+    order = np.argsort(importances)
+
+    plt.figure(figsize=(7,5), dpi=200)
+    plt.barh(range(len(order)), importances[order])
+    plt.yticks(range(len(order)), [feature_names[i] for i in order])
+    plt.xlabel("Permutation importance")
+    plt.title("Feature importance")
+    if SHOW_PLOTS:
+        plt.show()
+    else:
+        plt.close()
+
+    return importances
 
 #%% ============================================================
 # 7) Plot helpers (safe)
@@ -373,13 +425,15 @@ def plot_null(null_accs, real_acc, title="Permutation test"):
 
 
 #%% ============================================================
-# 8) RUN PIPELINE (run sections manually)
+# 8) RUN PIPELINE
 # ==============================================================
 # 8.1 Load data
 data = load_all_sessions()
 
 # 8.2 Build real dataset + run LOOCV
 X_all, y_all, meta = build_real_dataset(data, n_per_cond=N_SESS_PER_COND)
+print("\nRunning feature importance analysis...")
+importances = feature_importance_analysis(X_all, y_all, FEATURE_NAMES)
 preds, truths, acc = loocv_accuracy(X_all, y_all)
 print("\nREAL LOOCV acc:", acc)
 print("REAL confusion:\n", confusion_matrix(truths, preds, labels=["PCx", "plCoA"]))
@@ -392,7 +446,7 @@ print("CONTROL PCx confusion:\n", confusion_matrix(truths_c, preds_c, labels=["0
 
 
 
-# 8.4 Control distribution (many seeds) — this is the diagnostic you wanted
+# 8.4 Control distribution (many seeds)
 accs_pcx = []
 for seed in range(300):
     Xc, yc, _ = build_control_dataset(data, region="PCx", seed=seed)
